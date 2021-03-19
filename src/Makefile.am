@@ -57,6 +57,13 @@ if USE_MPIIO_AIORI
 extraSOURCES += aiori-MPIIO.c
 endif
 
+if USE_SION_AIORI
+extraSOURCES += aiori-SION.c
+extraCPPFLAGS += -I/usr/local/include -DSION_MPI
+extraLDFLAGS += -L/usr/local/lib
+extraLDADD += -lsion_mpi -lsion_generic -lsion_serial -lsion_common -lsion_lock_fallback
+endif
+
 if USE_NCMPI_AIORI
 extraSOURCES += aiori-NCMPI.c
 extraLDADD   += -lpnetcdf

@@ -48,3 +48,8 @@ build/
 doc/doxygen/build
 doc/sphinx/_*/
 !doc/sphinx/Makefile
+
+OUT.json
+src/build.conf
+src/md-workbench
+test_logs

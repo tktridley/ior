@@ -64,6 +64,9 @@ ior_aiori_t *available_aiori[] = {
 #ifdef USE_MPIIO_AIORI
         &mpiio_aiori,
 #endif
+#ifdef USE_SION_AIORI
+        &SION_aiori,
+#endif
 #ifdef USE_NCMPI_AIORI
         &ncmpi_aiori,
 #endif

@@ -153,6 +153,17 @@ AM_COND_IF([USE_MPIIO_AIORI],[
         AC_DEFINE([USE_MPIIO_AIORI], [], [Build MPIIO backend AIORI])
 ])
 
+# SION support
+AC_ARG_WITH([sion],
+        [AS_HELP_STRING([--with-sion],
+           [support IO with SIONlib backend @<:@default=yes@:>@])],
+        [],
+        [with_sion=yes])
+AM_CONDITIONAL([USE_SION_AIORI], [test x$with_sion = xyes])
+AM_COND_IF([USE_SION_AIORI],[
+        AC_DEFINE([USE_SION_AIORI], [], [Build SIONlib backend AIORI])
+])
+
 # NCMPI (Parallel netcdf) support
 AC_ARG_WITH([ncmpi],
         [AS_HELP_STRING([--with-ncmpi],
