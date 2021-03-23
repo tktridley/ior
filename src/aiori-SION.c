@@ -176,10 +176,10 @@ static aiori_fd_t *SION_Open(char *testFileName, int flags, aiori_mod_opt_t * mo
               fprintf(stdout, "RDWR not implemented in SION\n");
       }
       if (flags & IOR_APPEND) {
-              fprintf(stdout, "RDWR not implemented in SION\n");
+              fprintf(stdout, "APPEND not implemented in SION\n");
       }
       if (flags & IOR_CREAT) {
-              fprintf(stdout, "CREATE not implemented in SION\n");
+              //Create is a flag but isn't needed for SION. Is there a create only option?
       }
       if (flags & IOR_RDWR) {
               fprintf(stdout, "RDWR not implemented in MPIIO\n");
@@ -226,9 +226,9 @@ static aiori_fd_t *SION_Open(char *testFileName, int flags, aiori_mod_opt_t * mo
           //is at all.
           //*sfd = (void*) sid;//
           SION_CHECK(sfd->filedesc, "Cannot create file");
-          sion_mpi_options_delete(options);
-      }
 
+      }
+      sion_mpi_options_delete(options);
       return ((void *) sfd);
 }
 
@@ -421,32 +421,53 @@ static char* SION_GetVersion()
 IOR_offset_t SION_GetFileSize(aiori_mod_opt_t * module_options, char *testFileName)
 {
 
-  IOR_offset_t aggFileSize;
-  int          sid, ntasks,nfiles,size,blocks,rank,blknum;
-  sion_int32   fsblksize;
-  sion_int64   globalskip,start_of_varheader,blksize;
-  sion_int64  *sion_chunksizes, *sion_globalranks, *sion_blockcount, *sion_blocksizes;
-  sion_mpi_options *options = sion_mpi_options_new();
-  // printf("is this always before\n");
-  // sion_mpi_options_set_chunksize(options,hints->blockSize);
-  // sion_mpi_options_set_fsblksize(options, -1);
-
-  sid = sion_open(testFileName, SION_OPEN_READ, hints->numTasks, NULL);//numTasks might not always be quite right here.
-  // printf("stat sid is %d\n", sid);
-  sion_get_locations(sid, &size, &blocks, &globalskip, &start_of_varheader, &sion_chunksizes, &sion_globalranks,
-                     &sion_blockcount, &sion_blocksizes);
-  aggFileSize=0;
-  for (rank = 0; rank < size; rank++) {
-    for (blknum = 0; blknum < blocks; blknum++) {
-      blksize=sion_blocksizes[size * blknum + rank];
-      aggFileSize+=blksize;
-    }
-  }
-
-  sion_close(sid);
+  IOR_offset_t aggFileSizeLocal, aggFileSizeGlobal;
+  sion_fd_t * sfd = malloc(sizeof(sion_fd_t));
+  memset(sfd, 0, sizeof(sion_fd_t));
+  int sid;
+  aggFileSizeGlobal=0;
+  // int          sid, ntasks,nfiles,size,blocks,rank,blknum;
+  // sion_int32   fsblksize;
+  // sion_int64   globalskip,start_of_varheader,blksize;
+  // sion_int64  *sion_chunksizes, *sion_globalranks, *sion_blockcount, *sion_blocksizes;
+  // sion_mpi_options *options = sion_mpi_options_new();
+  // // printf("is this always before\n");
+  // // sion_mpi_options_set_chunksize(options,hints->blockSize);
+  // // sion_mpi_options_set_fsblksize(options, -1);
+  //
+  // sid = sion_open(testFileName, SION_OPEN_READ, hints->numTasks, NULL);//numTasks might not always be quite right here.
+  // // printf("stat sid is %d\n", sid);
+  // sion_get_locations(sid, &size, &blocks, &globalskip, &start_of_varheader, &sion_chunksizes, &sion_globalranks,
+  //                    &sion_blockcount, &sion_blocksizes);
+  // aggFileSize=0;
+  // for (rank = 0; rank < size; rank++) {
+  //   for (blknum = 0; blknum < blocks; blknum++) {
+  //     blksize=sion_blocksizes[size * blknum + rank];
+  //     aggFileSize+=blksize;
+  //   }
+  // }
+  //
+  // sion_close(sid);
   // sion_mpi_options_delete(options);
   // printf("return aggFileSize %d\n", aggFileSize);
+  sid = sion_paropen_mpi(testFileName, SION_OPEN_READ,testComm, NULL);
+  // printf(" start pos is  %ld\n",sion_tell(sid));
+  sion_seek(sid,0,SION_SEEK_END);
+  aggFileSizeLocal = sion_tell(sid);
+  // printf("end pos is %ld\n", sion_tell(sid));
+  MPI_CHECK(MPI_Allreduce(&aggFileSizeLocal,&aggFileSizeGlobal, 1, MPI_INT, MPI_SUM, testComm),"cannot open file to get file size");
+  // sion_tell the intial sion_get_locations
+  // printf(" start pos is  %ld\n",sion_tell(sid));
 
-  return(aggFileSize);
+  // printf("end pos is %ld\n", sion_tell(sid));
+  //sion_seek the end of the file? is that just SION_SEEK_END with zero offset?
+  // then Sion_tell, and that's my size for each rank?
+
+  sion_parclose_mpi(sid);
+
+
+
+
+  return(aggFileSizeGlobal);
   // return(5);
 }
