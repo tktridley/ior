@@ -156,9 +156,9 @@ AM_COND_IF([USE_MPIIO_AIORI],[
 # SION support
 AC_ARG_WITH([sion],
         [AS_HELP_STRING([--with-sion],
-           [support IO with SIONlib backend @<:@default=yes@:>@])],
+           [support IO with SIONlib backend @<:@default=no@:>@])],
         [],
-        [with_sion=yes])
+        [with_sion=no])
 AM_CONDITIONAL([USE_SION_AIORI], [test x$with_sion = xyes])
 AM_COND_IF([USE_SION_AIORI],[
         AC_DEFINE([USE_SION_AIORI], [], [Build SIONlib backend AIORI])
