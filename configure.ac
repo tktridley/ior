@@ -161,7 +161,16 @@ AC_ARG_WITH([sion],
         [with_sion=no])
 AM_CONDITIONAL([USE_SION_AIORI], [test x$with_sion = xyes])
 AM_COND_IF([USE_SION_AIORI],[
+        AC_ARG_VAR([SIONCONFIG], [path to the sionconfig utility])
+        AC_PATH_PROG([SIONCONFIG], [sionconfig], [no])
+        AS_IF([test "x$SIONCONFIG" = xno], [AC_MSG_ERROR([sionconfig not found])])
+
         AC_DEFINE([USE_SION_AIORI], [], [Build SIONlib backend AIORI])
+        SIONlib_MPI_CFLAGS=$(${SIONCONFIG} --cflags --mpi --be --64)
+        AC_SUBST([SIONlib_MPI_CFLAGS])
+        SIONlib_MPI_LIBS=$(${SIONCONFIG} --libs --mpi --be --64)
+        AC_SUBST([SIONlib_MPI_LIBS])
+
 ])
 
 # NCMPI (Parallel netcdf) support

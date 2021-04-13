@@ -59,8 +59,8 @@ endif
 
 if USE_SION_AIORI
 extraSOURCES += aiori-SION.c
-extraCPPFLAGS += `sionconfig --cflags --mpi --be --64`
-extraLDADD += `sionconfig --cflags --mpi --be --64` `sionconfig --libs --mpi --be --64`
+extraCPPFLAGS += ${SIONlib_MPI_CFLAGS}
+extraLDADD += ${SIONlib_MPI_LIBS}
 endif
 
 if USE_NCMPI_AIORI
