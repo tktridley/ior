@@ -288,17 +288,17 @@ static IOR_offset_t SION_Xfer(int access, aiori_fd_t *fdp, IOR_size_t * buffer,
 static void SION_Fsync(aiori_fd_t *fdp, aiori_mod_opt_t * module_options)
 {
   //SION does not currently buffer, so does not need to do this?
-  if (verbose >= VERBOSE_2) {
-    printf("IOR_Fsync_SION[%03d]:\n",rank);
-  }
+//   if (verbose >= VERBOSE_2) {
+//     printf("IOR_Fsync_SION[%03d]:\n",rank);
+//   }
   return;
 }
 
 static void SION_Close(aiori_fd_t *fdp, aiori_mod_opt_t * module_options)
 {
-  if (verbose >= VERBOSE_2) {
-    printf("IOR_Close_SION[%03d]:\n",rank);
-  }
+//   if (verbose >= VERBOSE_2) {
+//     printf("IOR_Close_SION[%03d]:\n",rank);
+//   }
   sion_fd_t * sfd= (sion_fd_t*) fdp;
   SION_CHECK(sion_parclose_mpi(sfd->filedesc), "could not close SION file");
   return;
@@ -307,9 +307,9 @@ static void SION_Close(aiori_fd_t *fdp, aiori_mod_opt_t * module_options)
 void SION_Delete(char *testFileName, aiori_mod_opt_t * module_options)
 {
   char errmsg[256];
-  if (verbose >= VERBOSE_2) {
-    printf("IOR_Delete_SION[%03d]: %s  (numfiles=%d)\n",rank,testFileName,sion_numfiles);
-  }
+//   if (verbose >= VERBOSE_2) {
+//     printf("IOR_Delete_SION[%03d]: %s  (numfiles=%d)\n",rank,testFileName,sion_numfiles);
+//   }
 
   sprintf(errmsg,"[RANK %03d]:cannot delete file %s\n",rank,testFileName);
   if (unlink(testFileName) != 0) WARN(errmsg);
@@ -348,7 +348,7 @@ IOR_offset_t SION_GetFileSize(aiori_mod_opt_t * module_options, char *testFileNa
   sid = sion_paropen_mpi(testFileName, SION_OPEN_READ,testComm, NULL);
   sion_seek(sid,0,SION_SEEK_END);
   aggFileSizeLocal = sion_tell(sid);
-  MPI_CHECK(MPI_Allreduce(&aggFileSizeLocal,&aggFileSizeGlobal, 1, MPI_INT, MPI_SUM, testComm),"cannot open file to get file size");
+  MPI_CHECK(MPI_Allreduce(&aggFileSizeLocal,&aggFileSizeGlobal, 1, MPI_LONG_LONG_INT, MPI_SUM, testComm),"cannot open file to get file size");
   sion_parclose_mpi(sid);
   return(aggFileSizeGlobal);
 }

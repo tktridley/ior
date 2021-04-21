@@ -380,7 +380,6 @@ static void CheckFileSize(IOR_test_t *test, char * testFilename, IOR_offset_t da
                                 EWARNF("Expected aggregate file size       = %lld", (long long) params->expectedAggFileSize);
                                 EWARNF("Stat() of aggregate file size      = %lld", (long long) point->aggFileSizeFromStat);
                                 EWARNF("Using actual aggregate bytes moved = %lld", (long long) point->aggFileSizeFromXfer);
-                                printf("HDF5 val is %s \n",params->api );
                                 if(params->deadlineForStonewalling){
                                   EWARN("Maybe caused by deadlineForStonewalling");
                                 }
