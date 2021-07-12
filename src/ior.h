@@ -46,18 +46,12 @@
 #endif /* not MPI_FILE_NULL */
 
 #define ISPOWEROFTWO(x) ((x != 0) && !(x & (x - 1)))
-/******************** DATA Packet Type ***************************************/
-/* Holds the types of data packets: generic, offset, timestamp, incompressible */
 
-enum PACKET_TYPE
-{
-    generic = 0,                /* No packet type specified */
-    timestamp=1,                  /* Timestamp packet set with -l */
-    offset=2,                     /* Offset packet set with -l */
-    incompressible=3              /* Incompressible packet set with -l */
-
-};
-
+typedef enum{
+    IOR_MEMORY_TYPE_CPU = 0,
+    IOR_MEMORY_TYPE_GPU_MANAGED = 1,
+    IOR_MEMORY_TYPE_GPU_DEVICE_ONLY = 2,
+} ior_memory_flags;
 
 
 /***************** IOR_BUFFERS *************************************************/
@@ -101,7 +95,10 @@ typedef struct
     MPI_Comm     testComm;           /* Current MPI communicator */
     MPI_Comm     mpi_comm_world;           /* The global MPI communicator */
     int dryRun;                      /* do not perform any I/Os just run evtl. inputs print dummy output */
-  int dualMount;                   /* dual mount points */
+    int dualMount;                   /* dual mount points */
+    ior_memory_flags gpuMemoryFlags;  /* use the GPU to store the data */
+    int gpuDirect;                /* use gpuDirect, this influences gpuMemoryFlags as well */
+    int gpuID;                       /* the GPU to use for gpuDirect or memory options */
     int numTasks;                    /* number of tasks for test */
     int numNodes;                    /* number of nodes for test */
     int numTasksOnNode0;             /* number of tasks on node 0 (usually all the same, but don't have to be, use with caution) */
@@ -130,10 +127,10 @@ typedef struct
     IOR_offset_t expectedAggFileSize; /* calculated aggregate file size */
     IOR_offset_t randomPrefillBlocksize;   /* prefill option for random IO, the amount of data used for prefill */
 
+    char * saveRankDetailsCSV;       /* save the details about the performance to a file */
     int summary_every_test;          /* flag to print summary every test, not just at end */
     int uniqueDir;                   /* use unique directory for each fpp */
     int useExistingTestFile;         /* do not delete test file before access */
-    int storeFileOffset;             /* use file offset as stored signature */
     int deadlineForStonewalling;     /* max time in seconds to run any test phase */
     int stoneWallingWearOut;         /* wear out the stonewalling, once the timeout is over, each process has to write the same amount */
     uint64_t stoneWallingWearOutIterations; /* the number of iterations for the stonewallingWearOut, needed for readBack */
@@ -152,7 +149,7 @@ typedef struct
     char * memoryPerNodeStr;         /* for parsing */
     char * testscripts;              /* for parsing */
     char * buffer_type;              /* for parsing */
-    enum PACKET_TYPE dataPacketType; /* The type of data packet.  */
+    ior_dataPacketType_e dataPacketType; /* The type of data packet.  */
 
     void * backend_options;          /* Backend-specific options */
 

@@ -15,6 +15,7 @@ MDTEST 1 -a POSIX
 MDTEST 2 -a POSIX -W 2
 MDTEST 1 -C -T -r -F -I 1 -z 1 -b 1 -L -u
 MDTEST 1 -C -T -I 1 -z 1 -b 1 -u
+MDTEST 2 -n 1 -f 1 -l 2
 
 IOR 1 -a POSIX -w    -z                  -F -Y -e -i1 -m -t 100k -b 2000k
 IOR 1 -a POSIX -w    -z                  -F -k -e -i2 -m -t 100k -b 200k
@@ -44,4 +45,9 @@ MDWB 3 -a POSIX -O=1 -D=2 -G=10 -P=4 -I=3 -2 -W -w 1 --read-only --run-info-file
 MDWB 3 -a POSIX -O=1 -D=2 -G=10 -P=4 -I=3 -2 -W -w 1 --read-only --run-info-file=mdw.tst --print-detailed-stats
 MDWB 3 -a POSIX -O=1 -D=2 -G=10 -P=4 -I=3 -3 -W -w 1 --run-info-file=mdw.tst --print-detailed-stats
 
+MDWB 2 -a POSIX -O=1 -D=1 -G=3 -P=2 -I=2 -R=2 -X -S 772 --dataPacketType=t
+DELETE=0
+MDWB 2 -a POSIX -D=1 -P=2 -I=2 -R=2 -X -G=2252 -S 772 --dataPacketType=i -1 
+MDWB 2 -a POSIX -D=1 -P=2 -I=2 -R=2 -X -G=2252 -S 772 --dataPacketType=i -2
+MDWB 2 -a POSIX -D=1 -P=2 -I=2 -R=2 -X -G=2252 -S 772 --dataPacketType=i -3
 END

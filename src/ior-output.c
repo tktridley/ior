@@ -21,7 +21,7 @@ void PrintTableHeader(){
     fprintf(out_resultfile, "access    bw(MiB/s)  IOPS       Latency(s)  block(KiB) xfer(KiB)  open(s)    wr/rd(s)   close(s)   total(s)   iter\n");
     fprintf(out_resultfile, "------    ---------  ----       ----------  ---------- ---------  --------   --------   --------   --------   ----\n");
   }else if(outputFormat == OUTPUT_CSV){
-    fprintf(out_resultfile, "access,bw(MiB/s),IOPS,Latency,block(KiB),xfer(KiB),open(s),wr/rd(s),close(s),total(s),iter\n");
+    fprintf(out_resultfile, "access,bw(MiB/s),IOPS,Latency,block(KiB),xfer(KiB),open(s),wr/rd(s),close(s),total(s),numTasks,iter\n");
   }
 }
 
@@ -260,6 +260,7 @@ void PrintReducedResult(IOR_test_t *test, int access, double bw, double iops, do
     PrintKeyValDouble("wrRdTime", diff_subset[1]);
     PrintKeyValDouble("closeTime", diff_subset[2]);
     PrintKeyValDouble("totalTime", totalTime);
+    PrintKeyValInt("Numtasks", test->params.numTasks);
     fprintf(out_resultfile, "%d\n", rep);
   }
 
@@ -370,7 +371,7 @@ void ShowTestStart(IOR_param_t *test)
     PrintKeyValInt("randomOffset", test->randomOffset);
     PrintKeyValInt("checkWrite", test->checkWrite);
     PrintKeyValInt("checkRead", test->checkRead);
-    PrintKeyValInt("storeFileOffset", test->storeFileOffset);
+    PrintKeyValInt("dataPacketType", test->dataPacketType);
     PrintKeyValInt("keepFile", test->keepFile);
     PrintKeyValInt("keepFileWithError", test->keepFileWithError);
     PrintKeyValInt("warningAsErrors", test->warningAsErrors);

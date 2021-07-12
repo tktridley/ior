@@ -33,6 +33,10 @@
 # include <sys/utsname.h>        /* uname() */
 #endif
 
+#ifdef HAVE_CUDA
+#include <cuda_runtime.h>
+#endif
+
 #include <assert.h>
 
 #include "ior.h"
@@ -112,6 +116,13 @@ static int test_initialize(IOR_test_t * test){
   testComm = params->testComm;
   verbose = test->params.verbose;
   backend = test->params.backend;
+
+#ifdef HAVE_CUDA
+  cudaError_t cret = cudaSetDevice(test->params.gpuID);
+  if(cret != cudaSuccess){
+    EWARNF("cudaSetDevice(%d) error: %s", test->params.gpuID, cudaGetErrorString(cret));
+  }
+#endif
 
   if(backend->initialize){
     backend->initialize(test->params.backend_options);
@@ -398,81 +409,7 @@ static size_t
 CompareData(void *expectedBuffer, size_t size, IOR_offset_t transferCount, IOR_param_t *test, IOR_offset_t offset, int fillrank, int access)
 {
         assert(access == WRITECHECK || access == READCHECK);
-
-        char testFileName[MAX_PATHLEN];
-        char * bufferLabel1 = "Expected: ";
-        char * bufferLabel2 = "Actual:   ";
-        size_t i, j, length;
-        size_t errorCount = 0;
-
-        IOR_offset_t offsetSignature = 0;
-        unsigned long long hi, lo, val; // for data verification
-        hi = ((unsigned long long)fillrank) << 32;
-        lo = (unsigned long long)test->timeStampSignatureValue;
-        if (test->storeFileOffset){
-          offsetSignature = offset;
-        }
-
-        unsigned long long *testbuf = (unsigned long long *)expectedBuffer;
-
-        length = size / sizeof(IOR_size_t);
-        if (verbose >= VERBOSE_3) {
-                fprintf(out_logfile,
-                        "[%d] At file byte offset %lld, comparing %llu-byte transfer\n",
-                        rank, (long long) offset, (long long)size);
-        }
-
-        int incompressibleSeed = test->setTimeStampSignature + fillrank;
-        for (i = 0; i < length; i++) {
-                if(test->dataPacketType == incompressible ) {
-                  /* same logic as in FillIncompressibleBuffer() */
-                  /* WARNING: make sure that both functions are changed at the same time */
-                  hi = ((unsigned long long) rand_r(& incompressibleSeed) << 32);
-                  lo = (unsigned long long) rand_r(& incompressibleSeed);
-                  val = hi | lo;
-                }else{
-                  if ((i % 2) == 0) {
-                    /* evens contain MPI rank and time in seconds */
-                    val = hi | lo;
-                  } else {
-                    /* odds contain offset */
-                    val = offsetSignature + (i * sizeof(unsigned long long));
-                  }
-                }
-                if (testbuf[i] != val) {
-                        errorCount++;
-                        if (verbose >= VERBOSE_2) {
-                                fprintf(out_logfile,
-                                        "[%d] At transfer buffer #%lld, index #%lld (file byte offset %lld):\n",
-                                        rank, transferCount - 1, (long long)i,
-                                        (long long) offset +
-                                        (IOR_size_t) (i * sizeof(IOR_size_t)));
-                                fprintf(out_logfile, "[%d] %s0x", rank, bufferLabel1);
-                                fprintf(out_logfile, "%016llx\n", val);
-                                fprintf(out_logfile, "[%d] %s0x", rank, bufferLabel2);
-                                fprintf(out_logfile, "%016llx\n", testbuf[i]);
-                        }
-
-                } else if (verbose >= VERBOSE_5) {
-                        fprintf(out_logfile,
-                                "[%d] PASSED offset = %llu bytes, transfer %lld\n",
-                                rank, ((i * sizeof(unsigned long long)) + offset), transferCount);
-                        fprintf(out_logfile, "[%d] GOOD %s0x", rank, bufferLabel1);
-                        fprintf(out_logfile, "%016llx ", val);
-                        fprintf(out_logfile, "\n[%d] GOOD %s0x", rank, bufferLabel2);
-                        fprintf(out_logfile, "%016llx ", testbuf[i]);
-                        fprintf(out_logfile, "\n");
-                }
-        }
-        if (errorCount > 0 && verbose >= VERBOSE_1) {
-                GetTestFileName(testFileName, test);
-                EWARNF("[%d] FAILED comparison of buffer in file %s during transfer %lld offset %lld containing %d-byte ints (%zd errors)",
-                        rank, testFileName, transferCount, offset, (int)sizeof(unsigned long long int),errorCount);
-        }else if(verbose >= VERBOSE_2){
-          fprintf(out_logfile, "[%d] comparison successful during transfer %lld offset %lld\n", rank, transferCount, offset);
-        }
-
-        return (errorCount);
+        return verify_memory_pattern(offset, expectedBuffer, transferCount, test->setTimeStampSignature, fillrank, test->dataPacketType);
 }
 
 /*
@@ -505,44 +442,6 @@ static int CountErrors(IOR_param_t * test, int access, int errors)
                 }
         }
         return (allErrors);
-}
-
-/*
- * Allocate a page-aligned (required by O_DIRECT) buffer.
- */
-static void *aligned_buffer_alloc(size_t size)
-{
-        size_t pageMask;
-        char *buf, *tmp;
-        char *aligned;
-
-#ifdef HAVE_SYSCONF
-        long pageSize = sysconf(_SC_PAGESIZE);
-#else
-        size_t pageSize = getpagesize();
-#endif
-
-        pageMask = pageSize - 1;
-        buf = malloc(size + pageSize + sizeof(void *));
-        if (buf == NULL)
-                ERR("out of memory");
-        /* find the alinged buffer */
-        tmp = buf + sizeof(char *);
-        aligned = tmp + pageSize - ((size_t) tmp & pageMask);
-        /* write a pointer to the original malloc()ed buffer into the bytes
-           preceding "aligned", so that the aligned buffer can later be free()ed */
-        tmp = aligned - sizeof(void *);
-        *(void **)tmp = buf;
-
-        return (void *)aligned;
-}
-
-/*
- * Free a buffer allocated by aligned_buffer_alloc().
- */
-static void aligned_buffer_free(void *buf)
-{
-        free(*(void **)((char *)buf - sizeof(char *)));
 }
 
 void AllocResults(IOR_test_t *test)
@@ -633,61 +532,6 @@ static void DistributeHints(MPI_Comm com)
                         /* doesn't exist in this task's environment; better set it */
                         if (putenv(hint[i]) != 0)
                                 WARN("cannot set environment variable");
-                }
-        }
-}
-
-/*
- * Fill buffer, which is transfer size bytes long, with known 8-byte long long
- * int values.  In even-numbered 8-byte long long ints, store MPI task in high
- * bits and timestamp signature in low bits.  In odd-numbered 8-byte long long
- * ints, store transfer offset.  If storeFileOffset option is used, the file
- * (not transfer) offset is stored instead.
- */
-static unsigned int reseed_incompressible_prng = TRUE;
-
-static void
-FillIncompressibleBuffer(void* buffer, IOR_param_t * test)
-{
-        size_t i;
-        unsigned long long hi, lo;
-        unsigned long long *buf = (unsigned long long *)buffer;
-
-        /* In order for write checks to work, we have to restart the pseudo random sequence */
-        /* This function has the same logic as CompareData() */
-        /* WARNING: make sure that both functions are changed at the same time */
-        if(reseed_incompressible_prng == TRUE) {
-                test->incompressibleSeed = test->setTimeStampSignature + rank; /* We copied seed into timestampSignature at initialization, also add the rank to add randomness between processes */
-                reseed_incompressible_prng = FALSE;
-        }
-        for (i = 0; i < test->transferSize / sizeof(unsigned long long); i++) {
-                hi = ((unsigned long long) rand_r(&test->incompressibleSeed) << 32);
-                lo = (unsigned long long) rand_r(&test->incompressibleSeed);
-                buf[i] = hi | lo;
-        }
-}
-
-static void
-FillBuffer(void *buffer,
-           IOR_param_t * test, unsigned long long offset, int fillrank)
-{
-        size_t i;
-        unsigned long long hi, lo;
-        unsigned long long *buf = (unsigned long long *)buffer;
-
-        if(test->dataPacketType == incompressible ) { /* Make for some non compressible buffers with randomish data */
-                FillIncompressibleBuffer(buffer, test);
-        } else {
-                hi = ((unsigned long long)fillrank) << 32;
-                lo = (unsigned long long)test->timeStampSignatureValue;
-                for (i = 0; i < test->transferSize / sizeof(unsigned long long); i++) {
-                        if ((i % 2) == 0) {
-                                /* evens contain MPI rank and time in seconds */
-                                buf[i] = hi | lo;
-                        } else {
-                                /* odds contain offset */
-                                buf[i] = offset + (i * sizeof(unsigned long long));
-                        }
                 }
         }
 }
@@ -1053,7 +897,7 @@ static void InitTests(IOR_test_t *tests)
 static void XferBuffersSetup(IOR_io_buffers* ioBuffers, IOR_param_t* test,
                              int pretendRank)
 {
-        ioBuffers->buffer = aligned_buffer_alloc(test->transferSize);
+        ioBuffers->buffer = aligned_buffer_alloc(test->transferSize, test->gpuMemoryFlags);
 }
 
 /*
@@ -1062,7 +906,7 @@ static void XferBuffersSetup(IOR_io_buffers* ioBuffers, IOR_param_t* test,
 static void XferBuffersFree(IOR_io_buffers* ioBuffers, IOR_param_t* test)
 
 {
-        aligned_buffer_free(ioBuffers->buffer);
+        aligned_buffer_free(ioBuffers->buffer, test->gpuMemoryFlags);
 }
 
 
@@ -1243,6 +1087,55 @@ WriteTimes(IOR_param_t *test, const double *timer, const int iteration,
                         timerName);
         }
 }
+
+static void StoreRankInformation(IOR_test_t *test, double *timer, const int rep, const int access){
+  IOR_param_t *params = &test->params;
+  double totalTime = timer[5] - timer[0];
+  double accessTime = timer[3] - timer[2];
+  double times[] = {totalTime, accessTime};
+
+  if(rank == 0){
+    FILE* fd = fopen(params->saveRankDetailsCSV, "a");
+    if (fd == NULL){
+      FAIL("Cannot open saveRankPerformanceDetailsCSV file for writes!");
+    }
+    int size;
+    MPI_Comm_size(params->testComm, & size);
+    double *all_times = malloc(2* size * sizeof(double));
+    MPI_Gather(times, 2, MPI_DOUBLE, all_times, 2, MPI_DOUBLE, 0, params->testComm);
+    IOR_point_t *point = (access == WRITE) ? &test->results[rep].write : &test->results[rep].read;
+    double file_size = ((double) point->aggFileSizeForBW) / size;
+
+    for(int i=0; i < size; i++){
+      char buff[1024];
+      sprintf(buff, "%s,%d,%.10e,%.10e,%.10e,%.10e\n", access==WRITE ? "write" : "read", i, all_times[i*2], all_times[i*2+1], file_size/all_times[i*2], file_size/all_times[i*2+1] );
+      int ret = fwrite(buff, strlen(buff), 1, fd);
+      if(ret != 1){
+        WARN("Couln't append to saveRankPerformanceDetailsCSV file\n");
+        break;
+      }
+    }
+    fclose(fd);
+  }else{
+    MPI_Gather(& times, 2, MPI_DOUBLE, NULL, 2, MPI_DOUBLE, 0, testComm);
+  }
+}
+
+static void ProcessIterResults(IOR_test_t *test, double *timer, const int rep, const int access){
+  IOR_param_t *params = &test->params;
+
+  if (verbose >= VERBOSE_3)
+    WriteTimes(params, timer, rep, access);
+  ReduceIterResults(test, timer, rep, access);
+  if (params->outlierThreshold) {
+    CheckForOutliers(params, timer, access);
+  }
+
+  if(params->saveRankDetailsCSV){
+    StoreRankInformation(test, timer, rep, access);
+  }
+}
+
 /*
  * Using the test parameters, run iteration(s) of single test.
  */
@@ -1283,8 +1176,7 @@ static void TestIoSys(IOR_test_t *test)
                 params->timeStampSignatureValue = (unsigned int) params->setTimeStampSignature;
         }
         XferBuffersSetup(&ioBuffers, params, pretendRank);
-        reseed_incompressible_prng = TRUE; // reset pseudo random generator, necessary to guarantee the next call to FillBuffer produces the same value as it is right now
-
+        
         /* Initial time stamp */
         startTime = GetTimeStamp();
 
@@ -1327,7 +1219,8 @@ static void TestIoSys(IOR_test_t *test)
                           (&params->timeStampSignatureValue, 1, MPI_UNSIGNED, 0,
                            testComm), "cannot broadcast start time value");
 
-                FillBuffer(ioBuffers.buffer, params, 0, pretendRank);
+                generate_memory_pattern((char*) ioBuffers.buffer, params->transferSize, params->setTimeStampSignature, pretendRank, params->dataPacketType);
+
                 /* use repetition count for number of multiple files */
                 if (params->multiFile)
                         params->repCounter = rep;
@@ -1383,12 +1276,7 @@ static void TestIoSys(IOR_test_t *test)
                            use actual amount of byte moved */
                         CheckFileSize(test, testFileName, dataMoved, rep, WRITE);
 
-                        if (verbose >= VERBOSE_3)
-                                WriteTimes(params, timer, rep, WRITE);
-                        ReduceIterResults(test, timer, rep, WRITE);
-                        if (params->outlierThreshold) {
-                                CheckForOutliers(params, timer, WRITE);
-                        }
+                        ProcessIterResults(test, timer, rep, WRITE);
 
                         /* check if in this round we run write with stonewalling */
                         if(params->deadlineForStonewalling > 0){
@@ -1415,8 +1303,7 @@ static void TestIoSys(IOR_test_t *test)
                                 }
                                 rankOffset = (2 * shift) % params->numTasks;
                         }
-                        reseed_incompressible_prng = TRUE; /* Re-Seed the PRNG to get same sequence back, if random */
-
+                        
                         GetTestFileName(testFileName, params);
                         params->open = WRITECHECK;
                         fd = backend->open(testFileName, IOR_RDONLY, params->backend_options);
@@ -1513,12 +1400,7 @@ static void TestIoSys(IOR_test_t *test)
                            use actual amount of byte moved */
                         CheckFileSize(test, testFileName, dataMoved, rep, READ);
 
-                        if (verbose >= VERBOSE_3)
-                                WriteTimes(params, timer, rep, READ);
-                        ReduceIterResults(test, timer, rep, READ);
-                        if (params->outlierThreshold) {
-                                CheckForOutliers(params, timer, READ);
-                        }
+                        ProcessIterResults(test, timer, rep, READ);
                 }
 
                 if (!params->keepFile
@@ -1560,6 +1442,14 @@ static void ValidateTests(IOR_param_t * test, MPI_Comm com)
         IOR_param_t defaults;
         init_IOR_Param_t(&defaults, com);
 
+        if (test->stoneWallingStatusFile && test->keepFile == 0)
+          ERR("a StoneWallingStatusFile is only sensible when splitting write/read into multiple executions of ior, please use -k");
+        if (test->stoneWallingStatusFile && test->stoneWallingWearOut == 0 && test->writeFile)
+          ERR("the StoneWallingStatusFile is only sensible for a write test when using  stoneWallingWearOut");
+        if (test->deadlineForStonewalling == 0 && test->stoneWallingWearOut > 0)
+          ERR("the stoneWallingWearOut is only sensible when setting a stonewall deadline with -D");
+        if (test->stoneWallingStatusFile && test->testscripts)
+          WARN("the StoneWallingStatusFile only preserves the last experiment, make sure that each run uses a separate status file!");
         if (test->repetitions <= 0)
                 WARN_RESET("too few test repetitions",
                            test, &defaults, repetitions);
@@ -1631,7 +1521,7 @@ static void ValidateTests(IOR_param_t * test, MPI_Comm com)
                 ERR("random offset and constant reorder tasks specified with single-shared-file. Choose one and resubmit");
         if (test->randomOffset && test->checkRead && test->randomSeed == -1)
                 ERR("random offset with read check option requires to set the random seed");
-        if (test->randomOffset && test->storeFileOffset)
+        if (test->randomOffset && test->dataPacketType == DATA_OFFSET)
                 ERR("random offset not available with store file offset option)");
         if ((strcasecmp(test->api, "HDF5") == 0) && test->randomOffset)
                 ERR("random offset not available with HDF5");
@@ -1747,9 +1637,7 @@ static IOR_offset_t WriteOrReadSingle(IOR_offset_t offset, int pretendRank, IOR_
   if (access == WRITE) {
           /* fills each transfer with a unique pattern
            * containing the offset into the file */
-          if (test->storeFileOffset == TRUE) {
-                  FillBuffer(buffer, test, offset, pretendRank);
-          }
+          update_write_memory_pattern(offset, ioBuffers->buffer, transfer, test->setTimeStampSignature, pretendRank, test->dataPacketType);
           amtXferred = backend->xfer(access, fd, buffer, transfer, offset, test->backend_options);
           if (amtXferred != transfer)
                   ERR("cannot write to file");
@@ -1772,7 +1660,6 @@ static IOR_offset_t WriteOrReadSingle(IOR_offset_t offset, int pretendRank, IOR_
           amtXferred = backend->xfer(access, fd, buffer, transfer, offset, test->backend_options);
           if (amtXferred != transfer)
                   ERR("cannot read from file write check");
-          (*transferCount)++;
           *errors += CompareData(buffer, transfer, *transferCount, test, offset, pretendRank, WRITECHECK);
   } else if (access == READCHECK) {
           ((long long int*) buffer)[0] = ~((long long int*) buffer)[0]; // changes the buffer, no memset to reduce the memory pressure
@@ -1792,7 +1679,7 @@ static void prefillSegment(IOR_param_t *test, void * randomPrefillBuffer, int pr
   IOR_offset_t transferCount;
   int errors;
   ioBuffers->buffer = randomPrefillBuffer;
-  for (int i = startSegment; i < endSegment; i++){
+  for (IOR_offset_t i = startSegment; i < endSegment; i++){
     for (int j = 0; j < offsets; j++) {
       IOR_offset_t offset = j * test->randomPrefillBlocksize;
       if (test->filePerProc) {
@@ -1820,7 +1707,7 @@ static IOR_offset_t WriteOrRead(IOR_param_t *test, IOR_results_t *results,
         IOR_offset_t dataMoved = 0;     /* for data rate calculation */
         double startForStonewall;
         int hitStonewall;
-        int i, j;
+        IOR_offset_t i, j;
         IOR_point_t *point = ((access == WRITE) || (access == WRITECHECK)) ?
                              &results->write : &results->read;
 
@@ -1839,7 +1726,7 @@ static IOR_offset_t WriteOrRead(IOR_param_t *test, IOR_results_t *results,
 
         void * randomPrefillBuffer = NULL;
         if(test->randomPrefillBlocksize && (access == WRITE || access == WRITECHECK)){
-          randomPrefillBuffer = aligned_buffer_alloc(test->randomPrefillBlocksize);
+          randomPrefillBuffer = aligned_buffer_alloc(test->randomPrefillBlocksize, test->gpuMemoryFlags);
           // store invalid data into the buffer
           memset(randomPrefillBuffer, -1, test->randomPrefillBlocksize);
         }
@@ -1961,7 +1848,7 @@ static IOR_offset_t WriteOrRead(IOR_param_t *test, IOR_results_t *results,
                 backend->fsync(fd, test->backend_options);       /*fsync after all accesses */
         }
         if(randomPrefillBuffer){
-          aligned_buffer_free(randomPrefillBuffer);
+          aligned_buffer_free(randomPrefillBuffer, test->gpuMemoryFlags);
         }
 
         return (dataMoved);
